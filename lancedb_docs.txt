@@ -1,0 +1,134 @@
+LanceDB is an open-source vector database designed for AI applications, enabling efficient storage, management, and retrieval of embeddings across large-scale multi-modal datasets. Its core is written in Rust and built atop Lance, an open-source columnar data format optimized for machine learning workloads and rapid random access.  ￼
+
+The LanceDB Python API offers both synchronous and asynchronous clients to interact with the database. ￼
+
+Installation
+
+To install the LanceDB Python package, use pip: ￼
+
+pip install lancedb
+
+Synchronous API
+
+Connecting to a Database
+
+To establish a connection to a LanceDB database: ￼
+
+import lancedb
+
+# Connect to a local directory
+db = lancedb.connect("~/.lancedb")
+
+# Connect to object storage
+db = lancedb.connect("s3://my-bucket/lancedb")
+
+# Connect to LanceDB Cloud
+db = lancedb.connect("db://my_database", api_key="ldb_...")
+
+Creating a Table with Initial Data
+
+To create a table and insert data simultaneously: ￼
+
+data = [
+    {"vector": [3.1, 4.1], "item": "foo", "price": 10.0},
+    {"vector": [5.9, 26.5], "item": "bar", "price": 20.0},
+]
+
+tbl = db.create_table("my_table", data=data)
+
+Alternatively, using a pandas DataFrame: ￼
+
+import pandas as pd
+
+df = pd.DataFrame(data)
+tbl = db.create_table("table_from_df", data=df)
+
+Creating an Empty Table with Schema
+
+To create an empty table by specifying a schema: ￼
+
+import pyarrow as pa
+
+schema = pa.schema([pa.field("vector", pa.list_(pa.float32(), list_size=2))])
+tbl = db.create_table("empty_table", schema=schema)
+
+Opening an Existing Table
+
+To open an existing table: ￼
+
+tbl = db.open_table("my_table")
+
+Deleting Rows from a Table
+
+To delete rows matching a specific condition:
+
+tbl.delete('item = "fizz"')
+
+Dropping a Table
+
+To drop a table from the database: ￼
+
+db.drop_table("my_table")
+
+Asynchronous API
+
+LanceDB also provides an asynchronous API for non-blocking operations. ￼
+
+Connecting to a Database
+
+import lancedb
+
+async_db = await lancedb.connect_async("~/.lancedb")
+
+Creating a Table with Initial Data
+
+data = [
+    {"vector": [3.1, 4.1], "item": "foo", "price": 10.0},
+    {"vector": [5.9, 26.5], "item": "bar", "price": 20.0},
+]
+
+tbl = await async_db.create_table("my_table_async", data=data)
+
+Creating an Empty Table with Schema
+
+import pyarrow as pa
+
+schema = pa.schema([pa.field("vector", pa.list_(pa.float32(), list_size=2))])
+tbl = await async_db.create_table("empty_table_async", schema=schema)
+
+Opening an Existing Table
+
+tbl = await async_db.open_table("my_table_async")
+
+Deleting Rows from a Table
+
+await tbl.delete('item = "fizz"')
+
+Dropping a Table
+
+await async_db.drop_table("my_table_async")
+
+Embedding API
+
+LanceDB integrates with various embedding models, allowing automatic vectorization of data during ingestion and querying. For example, using the OpenAI embedding function: ￼ ￼
+
+from lancedb.pydantic import LanceModel, Vector
+from lancedb.embeddings import get_registry
+
+db = lancedb.connect("/tmp/db")
+func = get_registry().get("openai").create(name="text-embedding-ada-002")
+
+class Words(LanceModel):
+    text: str = func.SourceField()
+    vector: Vector(func.ndims()) = func.VectorField()
+
+table = db.create_table("words", schema=Words, mode="overwrite")
+table.add([{"text": "hello world"}, {"text": "goodbye world"}])
+
+query = "greetings"
+result = table.search(query).limit(1).to_pydantic(Words)[0]
+print(result.text)
+
+This setup ensures that text data is automatically converted into vector embeddings using the specified model during both data insertion and querying.
+
+For comprehensive details and advanced configurations, refer to the LanceDB Python API Reference.
