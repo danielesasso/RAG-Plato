@@ -436,51 +436,127 @@ elif page == "Flashcard Generator":
     else:
         st.info("Please process a file on the Home page or ensure existing data is available in the database.")
 
-    st.subheader("Generate Flashcards from Existing DB Data")
-    if lesson_table and flashcard_table:
-        unique_topics = []
+    # --- Flashcards in Database ----------------------------------------------------
+    flashcard_table = st.session_state.get("flashcard_table")
+    if flashcard_table:
         try:
-            topics_df = lesson_table.search().select(["topic"]).limit(1000).to_pandas()
-            unique_topics = sorted(set(
-                t for t in topics_df['topic'].dropna().unique() if str(t).strip() != ""
-            ))
-        except:
-            pass
-        selected_topic = st.selectbox("Select Topic", [""] + unique_topics)
-        search_query = st.text_input("Search Query (optional)")
-        top_k = st.number_input("Top K Results", min_value=1, max_value=100, value=10)
-        if st.button("Generate Flashcards from DB"):
-            try:
-                query_obj = lesson_table.search()
-                if search_query.strip():
-                    query_obj = query_obj.search(search_query.strip())
-                if selected_topic:
-                    query_obj = query_obj.where(f"topic = '{selected_topic}'")
-                df_chunks = query_obj.limit(top_k).to_pandas()
-                flashcards = []
-                for idx, row in df_chunks.iterrows():
-                    chunk_text = row['text']
-                    lesson_number = row.get('lesson_number', 1)
-                    topic = row.get('topic', '')
-                    chunk_id = row.get('index', idx)
-                    card = generate_simple_flashcard_for_chunk(
-                        chunk_text,
-                        lesson_number,
-                        topic,
-                        chunk_id,
-                        difficulty=""
-                    )
-                    if card['front'] and card['back']:
-                        flashcards.append(card)
-                if flashcards:
-                    flashcard_table.add(pd.DataFrame(flashcards))
-                    st.success(f"Generated and saved {len(flashcards)} flashcards from DB.")
-                else:
-                    st.warning("No flashcards generated from DB.")
-            except Exception as e:
-                st.error(f"Error generating flashcards from DB: {e}")
+            df_flashcards = flashcard_table.to_pandas()
+            if not df_flashcards.empty:
+                st.subheader("Flashcards in Database")
+                # Hide the single dummy row, if it still exists
+                df_flashcards = df_flashcards[df_flashcards["lesson_number"] != -1]
+
+                st.dataframe(
+                    df_flashcards[
+                        [
+                            "front",
+                            "back",
+                            "lesson_number",
+                            "topic",
+                            "difficulty",
+                            "source_chunk_id",
+                            "generated_at",
+                        ]
+                    ]
+                )
+            else:
+                st.info("No flashcards found in database.")
+        except Exception as e:
+            st.warning(f"Could not load flashcards from database: {e}")
     else:
-        st.warning("Database tables not available.")
+        st.warning("Flashcard table not available.")
+
+    # --- Flashcard Search ----------------------------------------------------------
+    st.subheader("🔍 Search Flashcards")
+
+    search_query = st.text_input("Enter a keyword or phrase")
+    top_k = st.slider("Top-K (semantic)", 1, 20, 10, help="How many nearest-neighbor hits to fetch")
+
+    if st.button("Search"):
+        flash_tbl = st.session_state.get("flashcard_table")
+        if flash_tbl is None:
+            st.warning("Flashcard table not available.")
+        elif not search_query.strip():
+            st.info("Type something first 🙂")
+        else:
+            import pandas as pd
+            from lancedb.embeddings import EmbeddingFunctionRegistry
+
+            # ---------- 1. keyword hits (cheap, pandas) ----------
+            df_cards = flash_tbl.to_pandas()
+            kw_hits = df_cards[
+                df_cards["front"].str.contains(search_query, case=False, na=False)
+                | df_cards["back"].str.contains(search_query, case=False, na=False)
+            ]
+
+            # ---------- 2. semantic hits (vector search) ----------
+            sem_hits = (
+                flash_tbl                     # table knows its embedding function
+                .search(search_query)         # just pass the text!
+                .limit(top_k)
+                .to_pandas()
+                .drop(columns=["vector"], errors="ignore")
+            )
+
+            # ---------- unify + dedupe ----------
+            hits = (
+                pd.concat([kw_hits, sem_hits])
+                .drop_duplicates(subset=["front", "back"])
+                .reset_index(drop=True)
+            )
+
+            if hits.empty:
+                st.info("No flashcards matched your query.")
+            else:
+                st.success(f"Found {len(hits)} matching flashcards.")
+
+                # cache in session for downstream review mode
+                st.session_state.search_flashcards = hits[
+                    ["front", "back", "lesson_number", "topic", "difficulty"]
+                ].to_dict(orient="records")
+                st.session_state.search_idx = 0
+                st.session_state.search_show_answer = False
+
+     # --- Search Review Mode --------------------------------------------------------
+    if "search_flashcards" in st.session_state and st.session_state.search_flashcards:
+        cards = st.session_state.search_flashcards
+        idx = st.session_state.search_idx
+        card = cards[idx]
+
+        # callbacks -------------------------------------------------
+        def _s_prev():
+            st.session_state.search_idx = max(0, st.session_state.search_idx - 1)
+            st.session_state.search_show_answer = False
+
+        def _s_next():
+            st.session_state.search_idx = min(
+                len(cards) - 1, st.session_state.search_idx + 1
+            )
+            st.session_state.search_show_answer = False
+
+        def _s_reveal():
+            st.session_state.search_show_answer = True
+
+        # UI --------------------------------------------------------
+        st.markdown(f"### 🔎 Result {idx + 1} of {len(cards)}")
+        st.markdown(f"**Question:** {card['front']}")
+        st.caption(
+            f"Lesson: {card.get('lesson_number','N/A')}  |  "
+            f"Topic: {card.get('topic','N/A')}  |  "
+            f"Difficulty: {card.get('difficulty','N/A')}"
+        )
+
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c1:
+            st.button("Previous", on_click=_s_prev, disabled=idx == 0)
+        with c2:
+            st.button("Show Answer", on_click=_s_reveal, disabled=st.session_state.search_show_answer)
+        with c3:
+            st.button("Next", on_click=_s_next, disabled=idx == len(cards) - 1)
+
+        if st.session_state.search_show_answer:
+            st.markdown(f"**Answer:** {card['back']}")
+
 
     # --- Flashcard Visualization --------------------------------------------------
     flashcard_table = st.session_state.get("flashcard_table")
@@ -666,52 +742,6 @@ elif page == "MCQ Generator":
     else:
         st.info("Please process a file on the Home page or ensure existing data is available in the database.")
 
-    st.subheader("Generate MCQs from Existing DB Data")
-    if lesson_table and mcq_table:
-        unique_topics = []
-        try:
-            topics_df = lesson_table.search().select(["topic"]).limit(1000).to_pandas()
-            unique_topics = sorted(set(
-                t for t in topics_df['topic'].dropna().unique() if str(t).strip() != ""
-            ))
-        except:
-            pass
-        selected_topic = st.selectbox("Select Topic", [""] + unique_topics)
-        search_query = st.text_input("Search Query (optional)")
-        top_k = st.number_input("Top K Results", min_value=1, max_value=100, value=10)
-        if st.button("Generate MCQs from DB"):
-            try:
-                query_obj = lesson_table.search()
-                if search_query.strip():
-                    query_obj = query_obj.search(search_query.strip())
-                if selected_topic:
-                    query_obj = query_obj.where(f"topic = '{selected_topic}'")
-                df_chunks = query_obj.limit(top_k).to_pandas()
-                mcqs = []
-                for idx, row in df_chunks.iterrows():
-                    chunk_text = row['text']
-                    lesson_number = row.get('lesson_number', 1)
-                    topic = row.get('topic', '')
-                    chunk_id = row.get('index', idx)
-                    mcq = generate_mcq_for_chunk(
-                        chunk_text,
-                        lesson_number,
-                        topic,
-                        chunk_id,
-                        difficulty=""
-                    )
-                    if mcq['question'] and mcq['choices'] and mcq['answer']:
-                        mcqs.append(mcq)
-                if mcqs:
-                    mcq_table.add(pd.DataFrame(mcqs))
-                    st.success(f"Generated and saved {len(mcqs)} MCQs from DB.")
-                else:
-                    st.warning("No MCQs generated from DB.")
-            except Exception as e:
-                st.error(f"Error generating MCQs from DB: {e}")
-    else:
-        st.warning("Database tables not available.")
-
     # --- MCQ Visualization -------------------------------------------------------
     mcq_table = st.session_state.get("mcq_table")
     if mcq_table:
@@ -739,6 +769,114 @@ elif page == "MCQ Generator":
             st.warning(f"Could not load MCQs from database: {e}")
     else:
         st.warning("MCQ table not available.")
+        
+    # --- MCQ Search ---------------------------------------------------------------
+    st.subheader("🔍 Search MCQs")
+
+    mcq_query  = st.text_input("Keyword or phrase")
+    mcq_top_k  = st.slider("Top-K (semantic)", 1, 20, 10)
+
+    if st.button("Search MCQs"):
+        tbl = st.session_state.get("mcq_table")
+        if tbl is None:
+            st.warning("MCQ table not available.")
+        elif not mcq_query.strip():
+            st.info("Type something first 🙂")
+        else:
+            import pandas as pd
+            from lancedb.embeddings import EmbeddingFunctionRegistry  # only needed if you later embed manually
+
+            # ---------- 1. keyword hits ----------
+            df_all = tbl.to_pandas()
+            kw_hits = df_all[
+                df_all["question"].str.contains(mcq_query, case=False, na=False)
+                | df_all["choices"].astype(str).str.contains(mcq_query, case=False, na=False)
+            ]
+
+            # ---------- 2. semantic hits ----------
+            # The table already knows its embedder, so just pass the text
+            sem_hits = (
+                tbl.search(mcq_query)
+                .limit(mcq_top_k)
+                .to_pandas()
+                .drop(columns=["vector"], errors="ignore")
+            )
+
+            # ---------- unify results ----------
+            hits = (
+                pd.concat([kw_hits, sem_hits])
+                .drop_duplicates(subset=["question", "answer"])
+                .reset_index(drop=True)
+            )
+
+            if hits.empty:
+                st.info("No MCQs matched your query.")
+            else:
+                st.success(f"Found {len(hits)} matching MCQs.")
+
+                st.session_state.search_mcqs = [
+                    {
+                        "question": row.question,
+                        "choices": list(row.choices),
+                        "answer": row.answer,
+                    }
+                    for _, row in hits.iterrows()
+                ]
+                st.session_state.search_mcq_idx       = 0
+                st.session_state.search_mcq_choice    = None
+                st.session_state.search_mcq_feedback  = False
+
+    # --- Search Practice Mode -----------------------------------------------------
+    if st.session_state.get("search_mcqs"):
+        mcqs = st.session_state.search_mcqs
+        idx   = st.session_state.search_mcq_idx
+        item  = mcqs[idx]
+
+        # ---------- callbacks ----------
+        def _s_prev():
+            st.session_state.search_mcq_idx      = max(0, idx - 1)
+            st.session_state.search_mcq_choice   = None
+            st.session_state.search_mcq_feedback = False
+
+        def _s_next():
+            st.session_state.search_mcq_idx      = min(len(mcqs) - 1, idx + 1)
+            st.session_state.search_mcq_choice   = None
+            st.session_state.search_mcq_feedback = False
+
+        def _s_check():
+            st.session_state.search_mcq_feedback = True
+
+        # ---------- UI ----------
+        st.markdown(f"### 🔎 Result {idx + 1} of {len(mcqs)}")
+        st.markdown(f"**{item['question']}**")
+
+        st.session_state.search_mcq_choice = st.radio(
+            "Select your answer:",
+            item["choices"],
+            index=0
+            if st.session_state.search_mcq_choice is None
+            else item["choices"].index(st.session_state.search_mcq_choice),
+            key="search_mcq_radio",
+        )
+
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c1:
+            st.button("Previous", on_click=_s_prev, disabled=(idx == 0))
+        with c2:
+            st.button("Check Answer", on_click=_s_check)
+        with c3:
+            st.button("Next", on_click=_s_next, disabled=(idx == len(mcqs) - 1))
+
+        # feedback -----------------------
+        if st.session_state.search_mcq_feedback:
+            sel = st.session_state.search_mcq_choice or ""
+            correct = str(item["answer"]).strip()
+            if sel.split(")")[0].strip() == correct:
+                st.success("Correct! 🎉")
+            else:
+                st.error(f"Incorrect. The correct answer is **{correct}**.")
+
+
 
     # --- MCQ Practice Mode -------------------------------------------------------
     st.subheader("📝 MCQ Practice Mode")
