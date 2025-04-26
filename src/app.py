@@ -145,21 +145,15 @@ page = st.sidebar.selectbox("Navigate", ["Home", "Flashcard Generator", "MCQ Gen
 st.sidebar.subheader("Process New File")
 uploaded_file = st.sidebar.file_uploader("Upload a text file", type=['txt'])
 
-summarization_mode = st.sidebar.radio(
-    "Summarization Mode",
-    ["Flat", "Hierarchical"],
-    index=0
-)
-
 chunk_size = st.sidebar.slider("Chunk Size (words)", 100, 1000, 500, 50)
 summary_words = st.sidebar.slider("Summary Length (words)", 20, 200, 50, 10)
 
-if summarization_mode == "Hierarchical":
-    batch_size = st.sidebar.number_input("Batch Size (summaries per group)", min_value=1, max_value=10, value=2)
-    max_levels = st.sidebar.number_input("Max Hierarchy Levels", min_value=1, max_value=5, value=2)
-else:
-    batch_size = None
-    max_levels = None
+# Hierarchical-mode parameters (always shown now)
+batch_size  = st.sidebar.number_input("Batch Size (summaries per group)",
+                                      min_value=1, max_value=10, value=2)
+max_levels  = st.sidebar.number_input("Max Hierarchy Levels",
+                                      min_value=1, max_value=5,  value=2)
+
 
 lesson_num = st.sidebar.number_input("Lesson Number", min_value=1, value=1)
 lesson_topic = st.sidebar.text_input("Lesson Topic", "Text Processing")
@@ -205,40 +199,22 @@ if uploaded_file is not None:
             status_text.text("Processing text file...")
 
             with st.spinner("Generating chunk summaries..."):
-                if summarization_mode == "Flat":
-                    import src.pipeline as pipeline_module
-                    text_data = open(st.session_state.temp_file_path, 'r', encoding='utf-8').read()
-                    chunks = pipeline_module.chunk_text(text_data, chunk_size=chunk_size)
-                    prior_summary = "None"
-                    chunk_summaries = {}
-                    total_chunks = len(chunks)
-                    for i, chunk in enumerate(chunks):
-                        status_text.text(f"Processing chunk {i+1} of {total_chunks}...")
-                        current_summary = pipeline_module.generate_summary(prior_summary, chunk, summary_words)
-                        chunk_summaries[f"chunk_{i+1}"] = current_summary
-                        prior_summary = current_summary
-                        progress_bar.progress(int(100 * (i + 1) / total_chunks))
-                    status_text.text("Generating final summary...")
-                    st.session_state.chunk_summaries = chunk_summaries
-                    progress_bar.progress(100)
-                    st.session_state.processing_complete = True
-                    status_text.text("Processing complete!")
-                else:
-                    status_text.text("Generating hierarchical summaries...")
-                    chunk_summaries = process_transcriptions_hierarchical(
-                        st.session_state.temp_file_path,
-                        summarized_words=summary_words,
-                        chunk_size=chunk_size,
-                        batch_size=batch_size,
-                        max_levels=max_levels,
-                        lesson_number=lesson_num,
-                        topic=lesson_topic
-                    )
-                    status_text.text("Generating final summary...")
-                    st.session_state.chunk_summaries = chunk_summaries
-                    progress_bar.progress(100)
-                    st.session_state.processing_complete = True
-                    status_text.text("Processing complete!")
+                chunk_summaries = process_transcriptions_hierarchical(
+                    st.session_state.temp_file_path,
+                    summarized_words = summary_words,
+                    chunk_size       = chunk_size,
+                    batch_size       = batch_size,
+                    max_levels       = max_levels,
+                    lesson_number    = lesson_num,
+                    topic            = lesson_topic,
+                )
+
+                status_text.text("Generating final summary...")
+                st.session_state.chunk_summaries   = chunk_summaries
+                progress_bar.progress(100)
+                st.session_state.processing_complete = True
+                status_text.text("Processing complete!")
+
 
         except Exception as e:
             st.error(f"Error processing file: {e}")
@@ -769,7 +745,7 @@ elif page == "MCQ Generator":
             st.warning(f"Could not load MCQs from database: {e}")
     else:
         st.warning("MCQ table not available.")
-        
+
     # --- MCQ Search ---------------------------------------------------------------
     st.subheader("🔍 Search MCQs")
 

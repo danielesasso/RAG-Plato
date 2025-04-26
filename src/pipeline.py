@@ -159,58 +159,50 @@ def process_transcriptions(text_file_path, summarized_words=50, chunk_size=500):
 
 
 def process_transcriptions_hierarchical(
-    text_file_path,
-    summarized_words=50,
-    chunk_size=500,
-    batch_size=3,
-    max_levels=3,
-    lesson_number=1,
-    topic=""
+    text_file_path: str,
+    summarized_words: int = 50,
+    chunk_size: int = 500,
+    batch_size: int = 3,
+    max_levels: int = 3,
+    lesson_number: int = 1,
+    topic: str = ""
 ):
     """
-    Process text file with hierarchical summarization.
+    Process text file with hierarchical summarisation
+    **and** produce one ultimate summary that merges the
+    highest-level summaries (at double word-budget).
 
-    :param text_file_path: Path to text file
-    :param summarized_words: Target words per summary
-    :param chunk_size: Words per initial chunk
-    :param batch_size: Summaries per batch
-    :param max_levels: Max hierarchy depth
-    :param lesson_number: Lesson number metadata
-    :param topic: Topic metadata
-    :return: Final summary string
+    Returns
+    -------
+    str
+        The final merged summary of the entire file.
     """
+    # ----------  Set-up & read file  ----------
     current_hash = get_file_hash(text_file_path)
     db = lancedb.connect("./lancedb")
     table_name = "lesson_chunks"
 
-    # Create table if it doesn't exist
     if table_name not in db.table_names():
-        table = db.create_table(
-            table_name,
-            schema=LessonChunkSchema,
-            mode="overwrite"
-        )
+        table = db.create_table(table_name, schema=LessonChunkSchema)
         print(f"Created new table '{table_name}' with schema")
     else:
         table = db.open_table(table_name)
 
-    with open(text_file_path, 'r', encoding='utf-8') as f:
+    with open(text_file_path, encoding="utf-8") as f:
         text_data = f.read()
 
-    # Chunk text
-    chunks = chunk_text(text_data, chunk_size=chunk_size)
+    # ----------  Level-0 chunk summaries  ----------
+    chunks = chunk_text(text_data, chunk_size)
     chunk_summaries = []
-    current_time = datetime.now().isoformat()
+    now_iso = datetime.now().isoformat()
 
-    # Summarize each chunk
     for idx, chunk in enumerate(chunks):
         print(f"\nProcessing chunk {idx+1}/{len(chunks)}")
         summary = generate_summary("", chunk, summarized_words)
-        print(f"\n--- Summary for Chunk {idx+1}/{len(chunks)} ---\n{summary}\n{'-'*50}\n")
+        print(f"\n--- Summary for chunk {idx+1} ---\n{summary}\n" + "-"*60)
         chunk_summaries.append(summary)
 
-        # Save chunk summary
-        data = {
+        table.add(pd.DataFrame([{
             "text": summary,
             "index": idx,
             "lesson_number": lesson_number,
@@ -218,16 +210,15 @@ def process_transcriptions_hierarchical(
             "topic": topic,
             "score": 0.0,
             "file_hash": current_hash,
-            "processed_at": current_time,
+            "processed_at": now_iso,
             "level": 0,
             "batch_index": idx,
             "parent_batch": -1
-        }
-        table.add(pd.DataFrame([data]))
+        }]))
 
-    # Hierarchical summarization
-    final_summaries = hierarchical_summarize(
-        chunk_summaries,
+    # ----------  Hierarchical batching  ----------
+    final_level_summaries = hierarchical_summarize(
+        summaries=chunk_summaries,
         batch_size=batch_size,
         max_levels=max_levels,
         summarized_words=summarized_words,
@@ -237,9 +228,34 @@ def process_transcriptions_hierarchical(
         topic=topic
     )
 
-    final_summary = final_summaries[0] if final_summaries else ""
-    print("\nHierarchical Final Summary:\n")
-    print(final_summary)
+    # ----------  FINAL merge summary  ----------
+    if not final_level_summaries:
+        print("No summaries generated – returning empty string.")
+        return ""
+
+    combined_text = "\n\n".join(final_level_summaries)
+    print("\nGenerating FINAL merged summary…")
+    final_summary = generate_summary(
+        prior_summary="",
+        chunk_text=combined_text,
+        summarized_words=summarized_words * 2        # ← double budget here
+    )
+    print("\n*** FINAL SUMMARY ***\n" + final_summary)
+
+    # save to LanceDB
+    table.add(pd.DataFrame([{
+        "text": final_summary,
+        "index": len(chunks),          # put after last chunk
+        "lesson_number": lesson_number,
+        "section": "total_summary",
+        "topic": topic,
+        "score": 0.0,
+        "file_hash": current_hash,
+        "processed_at": now_iso,
+        "level": max_levels + 1,       # one level above highest batches
+        "batch_index": 0,
+        "parent_batch": -1
+    }]))
 
     return final_summary
 

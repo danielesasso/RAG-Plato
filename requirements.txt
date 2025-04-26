@@ -7,3 +7,4 @@ rich
 pyarrow
 pydantic
 streamlit-mermaid
+llama-cpp-python
