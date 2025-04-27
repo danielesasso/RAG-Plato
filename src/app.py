@@ -139,7 +139,7 @@ except:
 st.sidebar.header("Configuration")
 
 # Navigation
-page = st.sidebar.selectbox("Navigate", ["Home", "Flashcard Generator", "MCQ Generator", "Summary Tree"])
+page = st.sidebar.selectbox("Navigate", ["Home", "Flashcard Generator", "MCQ Generator"])
 
 # File upload and processing config (global, always visible)
 st.sidebar.subheader("Process New File")
@@ -282,14 +282,10 @@ if page == "Home":
                 "Hierarchy Level Filter",
                 ["All Levels", "Chunks (level 0)", "Batch Summaries (level 1+)", "Final Summaries (highest level)"]
             )
-            search_query_db = st.text_input("Optional Search Term", key="db_search")
 
             if st.button("Refresh Results"):
                 try:
                     query_obj = lesson_table.search()
-
-                    if search_query_db.strip():
-                        query_obj = query_obj.search(search_query_db.strip())
 
                     if level_filter == "Chunks (level 0)":
                         query_obj = query_obj.where("level = 0")
@@ -963,127 +959,6 @@ elif page == "MCQ Generator":
                 st.error(f"Incorrect. The correct answer is **{correct_letter}**.")
 
 
-elif page == "Summary Tree":
-    st.title("🌳 Hierarchical Summary Tree")
-
-    db = st.session_state.get('db')
-    if db is None:
-        try:
-            db = lancedb.connect("./lancedb")
-            st.session_state['db'] = db
-        except:
-            db = None
-
-    lesson_table = st.session_state.get('lesson_table')
-    if lesson_table is None and db is not None:
-        try:
-            lesson_table = db.open_table("lesson_chunks")
-            st.session_state['lesson_table'] = lesson_table
-        except:
-            lesson_table = None
-
-    if not lesson_table:
-        st.warning("Lesson chunks table not available.")
-    else:
-        try:
-            df = lesson_table.to_pandas()
-            if df.empty:
-                st.info("No summaries found in database.")
-            else:
-                # Topic filter
-                unique_topics = sorted(set(
-                    t for t in df['topic'].dropna().unique() if str(t).strip() != ""
-                ))
-                selected_topic = st.selectbox("Select Topic", ["All Topics"] + unique_topics)
-                if selected_topic != "All Topics":
-                    df = df[df['topic'] == selected_topic]
-
-                if df.empty:
-                    st.info("No summaries found for the selected topic.")
-                else:
-                    max_level = df['level'].max()
-                    roots = df[df['level'] == max_level]
-
-                    st.subheader("Hierarchical Summaries")
-
-                    # Build a flat list of all nodes with indentation
-                    nodes = []
-
-                    def collect_nodes(node, df, indent=0):
-                        prefix = " " * indent  # Unicode em-space for indentation
-                        header = f"{prefix}Level {node['level']} - {node['section']}"
-                        if node.get('topic'):
-                            header += f" (Topic: {node['topic']})"
-                        if 'score' in node and node['score'] != 0.0:
-                            header += f" (Score: {node['score']:.2f})"
-                        nodes.append((header, node))
-
-                        children = df[
-                            (df['level'] == node['level'] - 1) &
-                            (df['parent_batch'] == node['batch_index'])
-                        ]
-                        for _, child in children.iterrows():
-                            collect_nodes(child, df, indent + 1)
-
-                    for _, root in roots.iterrows():
-                        collect_nodes(root, df)
-
-                    for header, node in nodes:
-                        with st.expander(header):
-                            st.write(node['text'])
-                            st.caption(f"Lesson: {node['lesson_number']} | Batch: {node['batch_index']} | Parent: {node['parent_batch']} | Time: {node['processed_at']}")
-
-                    # --- Mermaid Diagram ---
-                    mermaid_lines = ["graph TD"]
-                    node_ids = {}
-
-                    # Assign unique IDs and labels
-                    for idx, row in df.iterrows():
-                        node_id = f"L{row['level']}_B{row['batch_index']}_{idx}"
-                        label = f"{row['section']}"
-                        node_ids[(row['level'], row['batch_index'], idx)] = node_id
-                        mermaid_lines.append(f'  {node_id}["{label}"]')
-
-                    # Add edges
-                    for idx, row in df.iterrows():
-                        child_id = node_ids.get((row['level'], row['batch_index'], idx))
-
-                        # Heuristic: connect chunks to nearest level 1 batch with same topic and lesson
-                        if row['level'] == 0:
-                            parent_candidates = df[
-                                (df['level'] == 1) &
-                                (df['topic'] == row['topic']) &
-                                (df['lesson_number'] == row['lesson_number'])
-                            ]
-                            if not parent_candidates.empty:
-                                # Connect to the first matching batch
-                                for p_idx in parent_candidates.index:
-                                    parent_row = parent_candidates.loc[p_idx]
-                                    parent_id = node_ids.get((parent_row['level'], parent_row['batch_index'], p_idx))
-                                    if parent_id and child_id:
-                                        mermaid_lines.append(f"  {parent_id} --> {child_id}")
-                                        break
-                            continue
-
-                        # For level >=1, use parent_batch and level+1 as before
-                        parent_level = row['level'] + 1
-                        parent_batch = row['parent_batch']
-                        parent_candidates = df[
-                            (df['level'] == parent_level) &
-                            (df['batch_index'] == parent_batch)
-                        ]
-                        if not parent_candidates.empty:
-                            for p_idx in parent_candidates.index:
-                                parent_id = node_ids.get((parent_level, parent_batch, p_idx))
-                                if parent_id and child_id:
-                                    mermaid_lines.append(f"  {parent_id} --> {child_id}")
-                                    break
-
-                    mermaid_code = "\n".join(mermaid_lines)
-                    st.subheader("Mermaid Diagram of Summary Hierarchy")
-                    st_mermaid(mermaid_code)
-        except Exception as e:
-            st.error(f"Error loading summaries: {e}")
 
 # Footer
 st.markdown("---")
