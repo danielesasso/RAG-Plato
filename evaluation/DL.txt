@@ -1,0 +1,8 @@
+I multilayer neural network sono universalizzatori dell'approssimazione con larghezza sufficiente che può approssimare qualsiasi funzione continua. **Deep Learning** ha rivoluzionato la visione artificiale con Convolutional Neural Networks, migliorando le prestazioni con tecnologie come:
+
+* MixUp: combinazione di due immagini per migliorare la robustezza delle reti neurali
+* CutMix: combinazione di due immagini utilizzando il taglio per aumentare la diversità delle immagini d'allenamento
+* Label Smoothing: modificazione degli etichetti di apprendimento per ridurre l'overfitting
+* Transfer learning: applicazione di modelli pre-addestrati su un compito diverso per accelerare l'apprendimento
+
+Inoltre, GNNs (Graph Neural Networks) utilizzano ricette empiriche e Weight initialization per migliorare le prestazioni. Queste tecnologie hanno rivoluzionato il campo della visione artificiale e delle reti neurali, permettendo di raggiungere risultati più accurate e robusti in vari applicativi.

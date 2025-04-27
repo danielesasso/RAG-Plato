@@ -1,0 +1,3 @@
+I sistemi IR sono fondamentali nella vita digitale, utilizzati in motori di ricerca web come Google e Bing. La domanda è rappresentata come query variabile, mentre le conoscenze attuali non sono sufficienti per un compito specifico. L'IR combina tecnologie come LSI, embedding di parole e grafici conosciuti, approssimi machine learning e test collections per comprendere richieste e documenti.
+
+Grazie all'uso di approcci basati su Deep Learning, l'IR può recuperare informazioni efficacemente. Questo avvia l'individuazione di miglioramenti per proteggere la privacy durante il recupero delle informazioni.

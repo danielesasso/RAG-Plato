@@ -21,8 +21,10 @@ def get_file_hash(file_path):
     """Calculate SHA-256 hash of file content"""
     hasher = hashlib.sha256()
     with open(file_path, 'rb') as f:
-        while chunk := f.read(4096):
+        chunk = f.read(4096)
+        while chunk:
             hasher.update(chunk)
+            chunk = f.read(4096)
     return hasher.hexdigest()
 
 def chunk_text(text, chunk_size=500):
@@ -47,6 +49,7 @@ def generate_summary(prior_summary, chunk_text, summarized_words=50):
     evidenziando i punti chiave. 
     Fornisci SOLO il testo finale del riassunto, senza alcuna introduzione, commento o frase aggiuntiva.
     Limite di circa {summarized_words} parole.
+    Ricorda di mantenere termini specifici come 'Deep Learning' o 'Retrieval' come tali, senza tradurli.
     
 
     Prior Summary: {prior_summary}
@@ -158,12 +161,23 @@ def process_transcriptions(text_file_path, summarized_words=50, chunk_size=500):
     return summaries
 
 
+def calculate_dynamic_parameters(file_path, chunk_size):
+    """Calculate dynamic batch_size and max_levels based on file size and chunk size"""
+    import math
+    import os
+    
+    file_size = os.path.getsize(file_path)
+    num_chunks = math.ceil(file_size / (chunk_size * 4))  # Approximate bytes per word
+    batch_size = max(2, min(5, math.ceil(math.sqrt(num_chunks))))
+    size_ratio = file_size / (chunk_size * 4)
+    max_levels = max(1, min(5, math.ceil(math.log2(size_ratio))))
+    
+    return batch_size, max_levels
+
 def process_transcriptions_hierarchical(
     text_file_path: str,
     summarized_words: int = 50,
     chunk_size: int = 500,
-    batch_size: int = 3,
-    max_levels: int = 3,
     lesson_number: int = 1,
     topic: str = ""
 ):
@@ -191,6 +205,9 @@ def process_transcriptions_hierarchical(
     with open(text_file_path, encoding="utf-8") as f:
         text_data = f.read()
 
+    # Calculate dynamic parameters
+    batch_size, max_levels = calculate_dynamic_parameters(text_file_path, chunk_size)
+    
     # ----------  Level-0 chunk summaries  ----------
     chunks = chunk_text(text_data, chunk_size)
     chunk_summaries = []
@@ -235,10 +252,11 @@ def process_transcriptions_hierarchical(
 
     combined_text = "\n\n".join(final_level_summaries)
     print("\nGenerating FINAL merged summary…")
+    # For final summary, use chunk size multiplied by level number
     final_summary = generate_summary(
         prior_summary="",
         chunk_text=combined_text,
-        summarized_words=summarized_words * 2        # ← double budget here
+        summarized_words=summarized_words * (max_levels + 1)  # level starts from 0
     )
     print("\n*** FINAL SUMMARY ***\n" + final_summary)
 
@@ -273,48 +291,55 @@ def collect_summarized_sections(chunk_summaries):
 # Step 3: Utilizzo di Ollama per generare il riassunto dell'intero file di testo e delle slide
 
 # 3.1 generate_final_summary: Genera il riassunto finale dalle sezioni
-def generate_final_summary(summarized_sections):
+def generate_final_summary(highest_level_chunks, current_level=0):
     """
-    :param summarized_sections: Lista di sezioni riassunte formattate.
-    :return: Stringa con il riassunto finale.
-    """
-    if not summarized_sections:
-        print("Nessuna sezione riassunta da processare.")
-        return ""
+    Generates a comprehensive summary from the highest level chunks and returns
+    the summary along with the next level.
 
-    summarized_sections_text = "\n\n".join(summarized_sections)
+    :param highest_level_chunks: List of highest level chunk summaries
+    :param current_level: Current hierarchy level of the chunks
+    :return: Tuple of (final_summary, next_level)
+    """
+    if not highest_level_chunks:
+        print("No chunks provided for final summary.")
+        return "", current_level + 1
+
+    combined_text = "\n\n".join(highest_level_chunks)
 
     system_prompt = textwrap.dedent(f"""
-    Il tuo obiettivo principale è condensare il contenuto in un riassunto conciso,
-    catturando i punti principali e i temi dalle seguenti sezioni:
+    Il tuo compito è creare un riassunto completo dell'intero documento analizzando e sintetizzando i seguenti riassunti di alto livello. Il riassunto
+    dovrebbe catturare tutti i punti chiave e i temi del documento originale senza
+    alcuni limiti di dimensione. Assicurati che il riassunto sia coerente e mantenga il
+    flusso logico del contenuto originale.
     """)
 
     user_prompt = textwrap.dedent(f"""\
-    Per creare un Riassunto Finale della lezione:
+    Per creare il Riepilogo Finale:
 
-    1. **Rivedi le sezioni riassunte:** Analizza attentamente tutte le sezioni riassunte della lezione.
-    2. **Identifica i temi principali:** Individua i temi educativi principali presenti nella lezione.
-    3. **Consolida le informazioni:** Unisci le informazioni dalle diverse sezioni, focalizzandoti sui temi principali.
-    4. **Mantieni i dettagli essenziali:** Preserva i dettagli cruciali per la comprensione della lezione.
-    5. **Verifica la completezza:** Assicurati che il riassunto rappresenti accuratamente i concetti principali.
+    1. **Analizzare tutte le sezioni:** Esaminare attentamente tutti i riepiloghi di alto livello forniti.
+    2. **Identificare i temi principali:** Estrarre ed elencare i principali temi didattici.
+    3. **Sintetizzare le informazioni:** Combinare le informazioni da tutte le sezioni mantenendo la struttura e la fluidità originali.
+    4. **Includere tutti i dettagli chiave:** Assicurarsi che tutte le informazioni cruciali siano preservate.
+    5. **Mantenere la coerenza:** Il riepilogo dovrebbe essere letto come un documento completo e coerente,
+    piuttosto che come una raccolta di punti.
 
-    **Sezioni riassunte:**
-    {summarized_sections_text}
+    **Riepiloghi di alto livello:**
+    {combined_text}
 
-    Riassunto Finale:
+    Final Summary:
     """)
 
     try:
-        print("Invio prompt al modello per il riassunto finale...")
+        print("Generating final comprehensive summary...")
         result = ollama.generate(
             model='llama3.2:latest',
             prompt=f"{system_prompt}\n\n{user_prompt}",
         )
-        print("Ricevuto riassunto finale dal modello.")
-        return str(result['response'])
+        print("Final summary generated successfully.")
+        return str(result['response']), current_level + 1
     except Exception as e:
-        print(f"Errore durante la generazione del riassunto finale: {e}")
-        return ""
+        print(f"Error generating final summary: {e}")
+        return "", current_level + 1
 
 
 def hierarchical_summarize(

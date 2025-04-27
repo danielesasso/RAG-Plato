@@ -1,0 +1,5 @@
+La Machine Learning (ML) consente ai computer di riconoscere pattern nei dati e migliorare senza essere esplicitamente programmati, grazie alla regolarizzazione. Questo approccio permette di aumentare l'efficacia degli algoritmi di ML. Le soluzioni più comuni includono: Boosting algorithms, probabilistici modelli e clustering.
+
+La gestione dei dati è fondamentale per evitare asimmetrie e ILM (Insufficiente Machine Learning) possono amplificare pregiudizi storici. Ciò richiede una selezione e preparazione adeguata dei dati di input, nonché la raccolta di dati rappresentativi ed equilibrati.
+
+La ML può essere utilizzata per prevedere risultati futuri basati su pattern nei dati passati. Inoltre, aiuta i sistemi ad imparare dalle esperienze e migliorare gradualmente senza la necessità di programmi espliciti. Tuttavia, è essenziale controllare le potenziali limitazioni e svantaggi della ML per garantire risultati accurati ed equilibrati.

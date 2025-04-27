@@ -145,14 +145,8 @@ page = st.sidebar.selectbox("Navigate", ["Home", "Flashcard Generator", "MCQ Gen
 st.sidebar.subheader("Process New File")
 uploaded_file = st.sidebar.file_uploader("Upload a text file", type=['txt'])
 
-chunk_size = st.sidebar.slider("Chunk Size (words)", 100, 1000, 500, 50)
-summary_words = st.sidebar.slider("Summary Length (words)", 20, 200, 50, 10)
-
-# Hierarchical-mode parameters (always shown now)
-batch_size  = st.sidebar.number_input("Batch Size (summaries per group)",
-                                      min_value=1, max_value=10, value=2)
-max_levels  = st.sidebar.number_input("Max Hierarchy Levels",
-                                      min_value=1, max_value=5,  value=2)
+chunk_size = st.sidebar.slider("Chunk Size (words)", 100, 1000, 250, 50)
+summary_words = st.sidebar.slider("Summary Length (words)", 20, 200, 40, 10)
 
 
 lesson_num = st.sidebar.number_input("Lesson Number", min_value=1, value=1)
@@ -203,8 +197,6 @@ if uploaded_file is not None:
                     st.session_state.temp_file_path,
                     summarized_words = summary_words,
                     chunk_size       = chunk_size,
-                    batch_size       = batch_size,
-                    max_levels       = max_levels,
                     lesson_number    = lesson_num,
                     topic            = lesson_topic,
                 )
@@ -283,6 +275,24 @@ if page == "Home":
                 ["All Levels", "Chunks (level 0)", "Batch Summaries (level 1+)", "Final Summaries (highest level)"]
             )
 
+            try:
+                # Older LanceDB versions: no "columns=" kwarg
+                df_topics = lesson_table.to_pandas()
+                topics_in_db = (
+                    df_topics["topic"]
+                    .dropna()
+                    .unique()
+                    .tolist()
+                )
+            except Exception as e:
+                topics_in_db = []
+                st.warning(f"Could not load topics: {e}")
+
+            topic_filter = st.selectbox(
+                "Topic Filter",
+                ["All Topics"] + sorted(topics_in_db)
+            )
+
             if st.button("Refresh Results"):
                 try:
                     query_obj = lesson_table.search()
@@ -296,6 +306,10 @@ if page == "Home":
                         if not df_all.empty:
                             max_level = df_all['level'].max()
                             query_obj = query_obj.where(f"level = {max_level}")
+
+                    if topic_filter != "All Topics":
+                        query_obj = query_obj.where(f"topic = '{topic_filter}'")
+
 
                     results = query_obj.limit(100).to_pandas()
                     if not results.empty:
