@@ -39,6 +39,7 @@ A modular, configurable pipeline for **summarizing educational text content**, g
 python3 -m venv .venv
 source .venv/bin/activate
 ```
+The version must be 3.9.21
 
 3. **Install dependencies**
 
@@ -58,7 +59,7 @@ ollama pull llama3.2
 5. **Run the app**
 
 ```bash
-python src/run-script.py
+python -m streamlit run src/app.py
 ```
 
 This will check dependencies, ensure models are available, and launch the Streamlit app in your browser.
