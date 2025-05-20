@@ -9,16 +9,14 @@ from lancedb.embeddings import EmbeddingFunctionRegistry
 # Initialize LanceDB connection
 db = lancedb.connect("./lancedb")
 
-# Embedding function (optional, if you want to search flashcards semantically)
-# Using a smaller model might be sufficient for simple flashcards
+#registry
 registry = EmbeddingFunctionRegistry.get_instance()
-# You might use a different embedder or none if semantic search isn't needed
-embedder = registry.get("ollama").create(name="mxbai-embed-large") # Or a smaller one
+embedder = registry.get("ollama").create(name="mxbai-embed-large") 
 
 class SimpleFlashcardSchema(LanceModel):
-    front: str = embedder.SourceField() # The question or term
+    front: str = embedder.SourceField() # The question 
     vector: Vector(embedder.ndims()) = embedder.VectorField() # Optional vector
-    back: str # The answer or definition
+    back: str # The answer 
     lesson_number: int
     topic: str
     difficulty: str
@@ -72,7 +70,7 @@ def generate_simple_flashcard_for_chunk(chunk_text, lesson_number, topic, chunk_
     front, back = "", ""
     try:
         result = ollama.generate(
-            model='llama3.2:latest', # Consider using a model tuned for conciseness if needed
+            model='llama3.2:latest', 
             prompt=prompt,
         )
         response = result['response']
@@ -95,7 +93,7 @@ def generate_simple_flashcard_for_chunk(chunk_text, lesson_number, topic, chunk_
 def main():
     # Open existing lesson_chunks table
     lesson_table = db.open_table("lesson_chunks")
-    # Query all summaries (customize filter as needed)
+    # Query all summaries 
     df = lesson_table.search().where("section LIKE 'chunk_%'").to_pandas()
 
     flashcards = []

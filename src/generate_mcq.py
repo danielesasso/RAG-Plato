@@ -14,10 +14,10 @@ registry = EmbeddingFunctionRegistry.get_instance()
 embedder = registry.get("ollama").create(name="mxbai-embed-large")
 
 class MCQSchema(LanceModel):
-    question: str = embedder.SourceField() # The question stem
+    question: str = embedder.SourceField() # The question 
     vector: Vector(embedder.ndims()) = embedder.VectorField()
     choices: list[str] # List of choices (e.g., ["A) ...", "B) ..."])
-    answer: str # The correct choice (e.g., "B")
+    answer: str # The correct choice 
     lesson_number: int
     topic: str
     difficulty: str

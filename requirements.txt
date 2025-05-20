@@ -8,3 +8,6 @@ pyarrow
 pydantic
 streamlit-mermaid
 llama-cpp-python
+torch
+transformers
+nltk
